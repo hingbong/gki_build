@@ -1,0 +1,69 @@
+name: gki-kernel-build
+
+
+on:
+  workflow_dispatch:
+
+ 
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+      - uses: actions/checkout@v4
+      - name: Setup environment
+        run: |
+          echo "Init env"
+          sudo apt-get update -y
+          sudo apt-get install -y ccache lzop cpio bzip2 zip flex bison gperf curl repo
+          
+      - name: Pull toolchain and kernel
+        run: |
+          echo "Downloading"
+          mkdir android-kernel && cd android-kernel
+          repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10 --repo-rev=v2.17
+          repo --trace sync -c -j$(nproc --all) --no-tags
+          ls
+          echo "Apply patch" 
+          cd common
+          git apply -v ${GITHUB_WORKSPACE}/gki_common.patch
+          
+      - name: Build kernel
+        run: |
+          echo "Building" 
+          cd android-kernel
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+          if [[ -f build/build.sh ]];then
+            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+          fi
+          
+      - name: Package kernel
+        run: |
+          mkdir kernel
+          paths=$(pwd)
+          cd android-kernel/out/android12-5.10/dist
+          if [[ -f Image.gz-dtb ]]; then
+            echo "Image.gz-dtb" && cd $paths && cp android-kernel/out/android12-5.10/dist/Image.gz-dtb kernel/
+          elif [[ -f Image-dtb ]]; then
+            echo "Image-dtb" && cd $paths && cp android-kernel/out/android12-5.10/dist/Image-dtb kernel/
+          elif [[ -f Image.gz ]]; then
+            echo "Image.gz" && cd $paths && cp android-kernel/out/android12-5.10/dist/Image.gz kernel/
+          elif [[ -f Image ]]; then
+            echo "Image" && cd $paths && cp android-kernel/out/android12-5.10/dist/Image kernel/
+          fi
+          cd kernel && ls
+
+      - name: Upload kernel to artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: gki-kernel
+          path: kernel/*
+
