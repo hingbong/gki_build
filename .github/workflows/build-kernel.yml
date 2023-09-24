@@ -34,6 +34,7 @@ jobs:
           ls
           echo "Apply patch" 
           cd common
+          git apply -v ${GITHUB_WORKSPACE}/revert-d219b19e1f26997a4c864ad2d0931fd859967e44.patch
           git apply -v ${GITHUB_WORKSPACE}/gki_common.patch
           
       - name: Build kernel
